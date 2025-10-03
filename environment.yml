@@ -1,0 +1,23 @@
+name: fcbformer
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.8
+  - pytorch=1.9.0
+  - torchvision=0.10.0
+  - cudatoolkit=11.1
+  - numpy=1.22.3
+  - scikit-image=0.19.2
+  - scikit-learn=1.0.2
+  - mkl=2021.4.0
+  - intel-openmp=2021.4.0
+  - pandas
+  - pip
+  - pip:
+      - timm==0.5.4
+      - opencv-python-headless==4.5.5.64
+      - tqdm
+      - albumentations==1.3.1

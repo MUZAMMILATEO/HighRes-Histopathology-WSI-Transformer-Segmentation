@@ -1,0 +1,20 @@
+datasets/
+EvalWSI/
+
+# Model weights
+*.pth
+*.pt
+
+# Trained models folder
+Trained models/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Logs / outputs
+logs/
+runs/
+wandb/
+outputs/
+checkpoints/
