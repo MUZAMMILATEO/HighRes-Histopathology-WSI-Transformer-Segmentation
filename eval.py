@@ -51,6 +51,7 @@ def upsample_to(arr_chw, out_h, out_w, mode="bilinear"):
     t = F.interpolate(t, size=(out_h, out_w),
                       mode=mode, align_corners=False if mode=="bilinear" else None)
     return t.squeeze(0)
+    
 
 # --- metrics ---
 def iou_per_class(pred_ids, gt_ids, num_classes=NUM_CLASSES):
@@ -173,6 +174,112 @@ def stitch_and_eval(args):
     for n,v in zip(class_names, mean_per_class):
         print(f"{n:>7}: {v:.4f}")
     print(f"mIoU  : {mean_miou:.4f}")
+    
+@torch.no_grad()
+def stitch_and_save_no_gt(args):
+    """
+    Stitch predictions from a tiles manifest (NO GT) and save per-WSI:
+      - <src_id>_pred.png     (full-WSI colored prediction)
+      - <src_id>_overlay.png  (full-WSI overlay = RGB stitched image + colored mask)
+
+    Manifest must have columns: image_path,src_id,h,w,y,x
+    (same geometry as val.csv, but no mask_path).
+    """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # load stats for normalization (as in eval)
+    stats_path = os.path.join(args.data_root, "processed", "stats.json")
+    with open(stats_path) as f:
+        stats = json.load(f)
+    mean, std = stats["rgb_mean"], stats["rgb_std"]
+
+    # model
+    from Models import models as modelz
+    model = modelz.FCBFormer(size=args.img_size, num_classes=NUM_CLASSES).to(device)
+    ckpt = torch.load(args.checkpoint, map_location=device)
+    state = ckpt.get("model_state_dict", ckpt)
+    model.load_state_dict(state)
+    model.eval()
+
+    # read tiles manifest (no masks)
+    rows = []
+    with open(args.tiles_manifest, newline="") as f:
+        r = csv.DictReader(f)
+        for row in r:
+            row["h"] = int(row["h"]); row["w"] = int(row["w"])
+            row["y"] = int(row["y"]); row["x"] = int(row["x"])
+            rows.append(row)
+
+    by_src = defaultdict(list)
+    for r in rows:
+        by_src[r["src_id"]].append(r)
+
+    tf = make_val_transform(args.img_size, mean, std)
+    os.makedirs(args.out_dir, exist_ok=True)
+
+    for idx, (src_id, tiles) in enumerate(sorted(by_src.items())):
+        # canvas size from tiles
+        H = max(r["y"] + r["h"] for r in tiles)
+        W = max(r["x"] + r["w"] for r in tiles)
+
+        # accumulators for logits + overlap counts
+        logit_acc = torch.zeros(NUM_CLASSES, H, W, dtype=torch.float32, device=device)
+        count_acc = torch.zeros(1, H, W, dtype=torch.float32, device=device)
+
+        # stitch RGB image for overlay
+        rgb_canvas = np.zeros((H, W, 3), dtype=np.uint8)
+
+        # batched inference
+        batch_imgs, batch_meta = [], []
+        BATCH = args.batch_size
+
+        def flush():
+            if not batch_imgs:
+                return
+            x = torch.stack(batch_imgs, dim=0).to(device)   # (B,3,sz,sz)
+            logits = model(x)                               # (B,C,sz,sz)
+            if isinstance(logits, (tuple, list)):
+                logits = logits[0]
+            for b in range(logits.shape[0]):
+                r = batch_meta[b]
+                logit_tile = upsample_to(logits[b], r["h"], r["w"], mode="bilinear")
+                y0, x0 = r["y"], r["x"]
+                logit_acc[:, y0:y0+r["h"], x0:x0+r["w"]] += logit_tile
+                count_acc[:, y0:y0+r["h"], x0:x0+r["w"]] += 1.0
+            batch_imgs.clear(); batch_meta.clear()
+
+        for r in tiles:
+            img = load_rgb(r["image_path"])
+            # place RGB tile for overlay (ensure size matches manifest)
+            rgb_canvas[r["y"]:r["y"]+r["h"], r["x"]:r["x"]+r["w"]] = np.array(img.resize((r["w"], r["h"])))
+
+            x = tf(img)
+            batch_imgs.append(x)
+            batch_meta.append(r)
+            if len(batch_imgs) == BATCH:
+                flush()
+        flush()
+
+        # average overlaps
+        count_acc = torch.clamp(count_acc, min=1.0)
+        logit_acc /= count_acc
+
+        # argmax -> pred ids + color
+        pred_ids = torch.argmax(logit_acc, dim=0).cpu().numpy().astype(np.uint8)
+        color = ID2COLOR[pred_ids]
+
+        # save colored prediction
+        pred_path = os.path.join(args.out_dir, f"{src_id}_pred.png")
+        Image.fromarray(color).save(pred_path)
+
+        # save overlay
+        alpha = getattr(args, "overlay_alpha", 0.4)
+        overlay = (rgb_canvas * (1.0 - alpha) + color * alpha).astype(np.uint8)
+        overlay_path = os.path.join(args.out_dir, f"{src_id}_overlay.png")
+        Image.fromarray(overlay).save(overlay_path)
+
+        print(f"[{idx+1}/{len(by_src)}] {src_id} -> saved pred + overlay")
+
 
 def parse_args():
     ap = argparse.ArgumentParser("WSI-level evaluation for AIRA (FCBFormer)")
@@ -186,6 +293,11 @@ def parse_args():
     ap.add_argument("--out-dir", type=str, default="./EvalWSI")
     ap.add_argument("--save-png", action="store_true",
                     help="save colored stitched predictions")
+    ap.add_argument("--tiles-manifest", type=str, default="",
+                    help="CSV manifest with tiles but no masks (image_path,src_id,h,w,y,x). "
+                         "If set, stitches full-WSI predictions and saves pred & overlay.")
+    ap.add_argument("--overlay-alpha", type=float, default=0.4,
+                    help="Alpha for overlay blending (0..1). Used in tiles-manifest mode.")
     return ap.parse_args()
 
 def main():
@@ -193,7 +305,13 @@ def main():
     os.environ.setdefault("OMP_NUM_THREADS", "1")
     os.environ.setdefault("MKL_NUM_THREADS", "1")
     args = parse_args()
-    stitch_and_eval(args)
+
+    if args.tiles_manifest:
+        # inference-only stitching with no GT; saves <src_id>_pred.png and <src_id>_overlay.png
+        stitch_and_save_no_gt(args)
+    else:
+        # validation mode using processed/manifests/val.csv with GT
+        stitch_and_eval(args)
 
 if __name__ == "__main__":
     main()

@@ -217,6 +217,14 @@ def build(args):
     if args.mgpu == "true":
         model = nn.DataParallel(model)
     model.to(device)
+    
+    # ---- OPTIONAL: warm-start from a checkpoint if present ----
+    ckpt_path = os.getenv("WARM_START_CKPT", "")
+    if ckpt_path and os.path.isfile(ckpt_path):
+        ckpt = torch.load(ckpt_path, map_location=device)
+        model.load_state_dict(ckpt["model_state_dict"])
+        print(f"[warm-start] Loaded weights from {ckpt_path}")
+    # ------------------------------------------------------------
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
 
