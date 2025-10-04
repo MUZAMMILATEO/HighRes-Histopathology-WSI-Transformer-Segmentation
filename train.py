@@ -4,6 +4,10 @@ import argparse
 import time
 import numpy as np
 import glob
+from pathlib import Path
+import csv
+from datetime import datetime
+import subprocess
 
 import torch
 import torch.nn as nn
@@ -12,9 +16,10 @@ from Data import dataloaders
 from Models import models
 from Metrics import performance_metrics
 from Metrics import losses
+from Metrics.log_helper import AvgMeter
 
 from Data.dataloaders_joint import get_loaders_from_manifests
-import json
+import json, random
 
 
 def train_epoch(model, device, train_loader, optimizer, epoch, Dice_loss, BCE_loss, 
@@ -23,6 +28,11 @@ def train_epoch(model, device, train_loader, optimizer, epoch, Dice_loss, BCE_lo
     t = time.time()
     model.train()
     loss_accumulator = []
+    
+    # new meters
+    m_ce   = AvgMeter(); m_dice = AvgMeter()
+    m_bnd  = AvgMeter(); m_tum  = AvgMeter(); m_ben = AvgMeter()
+    
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
@@ -32,42 +42,35 @@ def train_epoch(model, device, train_loader, optimizer, epoch, Dice_loss, BCE_lo
         if num_classes > 1:
             # AIRA (4 classes): use CE on logits + multiclass Dice
             target_long = target.long()
-            l_dice = dice_loss_mc(output, target_long)
-            l_ce   = ce_loss(output, target_long)
+            l_dice = dice_loss_mc(output, target_long); m_dice.update(l_dice.item(), data.size(0))
+            l_ce   = ce_loss(output, target_long);      m_ce.update(l_ce.item(),   data.size(0))
             loss = l_dice + l_ce
             if bnd_loss is not None and boundary_weight > 0:
-                l_bnd = bnd_loss(output, target_long)
+                l_bnd = bnd_loss(output, target_long);  m_bnd.update(l_bnd.item(), data.size(0))
                 loss = loss + boundary_weight * l_bnd
             else:
                 l_bnd = torch.tensor(0.0, device=device)
             if tumor_dil_loss is not None and tumor_dil_weight > 0:
-                l_tum = tumor_dil_loss(output, target_long)
+                l_tum = tumor_dil_loss(output, target_long); m_tum.update(l_tum.item(), data.size(0))
                 loss = loss + tumor_dil_weight * l_tum
             else:
                 l_tum = torch.tensor(0.0, device=device)
             if benign_dil_loss is not None and benign_dil_weight > 0:
-                l_ben = benign_dil_loss(output, target_long)
+                l_ben = benign_dil_loss(output, target_long); m_ben.update(l_ben.item(), data.size(0))
                 loss = loss + benign_dil_weight * l_ben
             else:
                 l_ben = torch.tensor(0.0, device=device)
                 
             # Debug print every 50 batches
             if (batch_idx % 50) == 0:
-                def _f(x):  # safe to print even if it's a tensor on GPU
-                    if isinstance(x, torch.Tensor):
-                        return float(x.detach().cpu())
-                    return float(x)
-                print(
-                    f"\n [losses] CE:{_f(l_ce):.4f} "
-                    f"Dice:{_f(l_dice):.4f} "
-                    f"Bnd:{_f(l_bnd):.4f} "
-                    f"TumDil:{_f(l_tum):.4f} "
-                    f"BenDil:{_f(l_ben):.4f}"
-                )
+                def _f(x): return float(x.detach().cpu()) if isinstance(x, torch.Tensor) else float(x)
+                print(f"\n [losses] CE:{_f(l_ce):.4f} Dice:{_f(l_dice):.4f} Bnd:{_f(l_bnd):.4f} TumDil:{_f(l_tum):.4f} BenDil:{_f(l_ben):.4f}")
 
         else:
             # Binary path (Kvasir/CVC): keep original behavior
-            loss = Dice_loss(output, target) + BCE_loss(output, target)
+            l_dice = Dice_loss(output, target); m_dice.update(l_dice.item(), data.size(0))
+            l_ce   = BCE_loss(output, target);  m_ce.update(l_ce.item(),   data.size(0))
+            loss = l_dice + l_ce
 
         loss.backward()
         optimizer.step()
@@ -75,24 +78,24 @@ def train_epoch(model, device, train_loader, optimizer, epoch, Dice_loss, BCE_lo
 
         # (optional) pretty printing kept as-is...
         if batch_idx + 1 < len(train_loader):
-            print(
-                "\rTrain Epoch: {} [{}/{} ({:.1f}%)]\tLoss: {:.6f}\tTime: {:.6f}".format(
-                    epoch, (batch_idx + 1) * len(data), len(train_loader.dataset),
-                    100.0 * (batch_idx + 1) / len(train_loader),
-                    loss.item(), time.time() - t,
-                ),
-                end="",
-            )
+            print("\rTrain Epoch: {} [{}/{} ({:.1f}%)]\tLoss: {:.6f}\tTime: {:.6f}".format(
+                epoch, (batch_idx + 1) * len(data), len(train_loader.dataset),
+                100.0 * (batch_idx + 1) / len(train_loader),
+                loss.item(), time.time() - t,
+            ), end="")
         else:
-            print(
-                "\rTrain Epoch: {} [{}/{} ({:.1f}%)]\tAverage loss: {:.6f}\tTime: {:.6f}".format(
-                    epoch, (batch_idx + 1) * len(data), len(train_loader.dataset),
-                    100.0 * (batch_idx + 1) / len(train_loader),
-                    np.mean(loss_accumulator), time.time() - t,
-                )
-            )
+            print("\rTrain Epoch: {} [{}/{} ({:.1f}%)]\tAverage loss: {:.6f}\tTime: {:.6f}".format(
+                epoch, (batch_idx + 1) * len(data), len(train_loader.dataset),
+                100.0 * (batch_idx + 1) / len(train_loader),
+                np.mean(loss_accumulator), time.time() - t,
+            ))
 
-    return np.mean(loss_accumulator)
+    # return epoch averages (for CSV)
+    return {
+        "loss": float(np.mean(loss_accumulator)),
+        "ce": m_ce.avg, "dice": m_dice.avg,
+        "bnd": m_bnd.avg, "tum": m_tum.avg, "ben": m_ben.avg,
+    }
 
 
 @torch.no_grad()
@@ -131,12 +134,13 @@ def test(model, device, test_loader, epoch, perf_measure=None, num_classes=4):
         miou = float(np.mean(mean_ious))
         print(f"[Val IoU] per-class: {mean_ious}, mIoU: {miou:.4f}")
         # Return mIoU so scheduler/checkpoint use it
-        return miou, 0.0
+        return miou, 0.0, { "bg": mean_ious[0], "stroma": mean_ious[1], "benign": mean_ious[2], "tumor": mean_ious[3] }
 
     # binary fallback
     return (
         float(np.mean(perf_accumulator)) if perf_accumulator else 0.0,
         float(np.std(perf_accumulator)) if perf_accumulator else 0.0,
+        {}, 
     )
 
 
@@ -223,7 +227,7 @@ def build(args):
 
 
 
-def train(args):
+def train(args, run_dir: Path):
     (
         device,
         train_dataloader,
@@ -238,11 +242,21 @@ def train(args):
         optimizer,
         num_classes, 
     ) = build(args)
-
-    if not os.path.exists("./Trained models"):
-        os.makedirs("./Trained models")
+    
+    (run_dir / "logs").mkdir(parents=True, exist_ok=True)
+    train_csv = run_dir / "logs" / "train_log.csv"
+    val_csv   = run_dir / "logs" / "val_log.csv"
+    
+    # create headers if new
+    if not train_csv.exists():
+        with open(train_csv, "w", newline="") as f:
+            w = csv.writer(f); w.writerow(["epoch","loss","ce","dice","bnd","tum","ben","lr"])
+    if not val_csv.exists():
+        with open(val_csv, "w", newline="") as f:
+            w = csv.writer(f); w.writerow(["epoch","miou","bg","stroma","benign","tumor"])
 
     prev_best_test = None
+    scheduler = None
     if args.lrs == "true":
         if args.lrs_min > 0:
             scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -254,7 +268,7 @@ def train(args):
             )
     for epoch in range(1, args.epochs + 1):
         try:
-            loss = train_epoch(
+            train_stats = train_epoch(
                 model, device, train_dataloader, optimizer, epoch,
                 Dice_loss, CE_loss,
                 ce_loss=CE_loss if num_classes > 1 else None,
@@ -268,32 +282,51 @@ def train(args):
                 num_classes=num_classes,
             )
 
-            test_measure_mean, test_measure_std = test(
+            test_measure_mean, test_measure_std, val_detail = test(
                 model, device, val_dataloader, epoch,
                 perf_measure=perf,
                 num_classes=num_classes,
             )
+            
+            # CSV LOGGING
+            lr_now = optimizer.param_groups[0]["lr"]
+            with open(train_csv, "a", newline="") as f:
+                w = csv.writer(f)
+                w.writerow([epoch, train_stats["loss"], train_stats["ce"], train_stats["dice"],
+                            train_stats["bnd"], train_stats["tum"], train_stats["ben"], lr_now])
+
+            if val_detail:
+                with open(val_csv, "a", newline="") as f:
+                    w = csv.writer(f)
+                    w.writerow([epoch, test_measure_mean,
+                            val_detail["bg"], val_detail["stroma"], val_detail["benign"], val_detail["tumor"]])
+            else:
+                with open(val_csv, "a", newline="") as f:
+                    w = csv.writer(f)
+                    w.writerow([epoch, test_measure_mean, "", "", "", ""])
+            
         except KeyboardInterrupt:
             print("Training interrupted by user")
             sys.exit(0)
-        if args.lrs == "true":
+        if scheduler is not None:
             scheduler.step(test_measure_mean)
-        if prev_best_test == None or test_measure_mean > prev_best_test:
-            print("Saving...")
-            torch.save(
-                {
-                    "epoch": epoch,
-                    "model_state_dict": model.state_dict()
-                    if args.mgpu == "false"
-                    else model.module.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "loss": loss,
-                    "test_measure_mean": test_measure_mean,
-                    "test_measure_std": test_measure_std,
-                },
-                "Trained models/FCBFormer_" + args.dataset + ".pt",
-            )
+        # state dict (shared by both saves)
+        state_dict = {
+            "epoch": epoch,
+            "model_state_dict": model.state_dict() if args.mgpu == "false" else model.module.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "scheduler_state_dict": scheduler.state_dict() if scheduler is not None else None,
+            "loss": train_stats["loss"],
+            "val_mIoU": test_measure_mean,
+            "val_mIoU_std": test_measure_std,
+            "args": vars(args),
+        }
+        torch.save(state_dict, run_dir / "last_FCBFormer.pt")
+        if prev_best_test is None or test_measure_mean > prev_best_test:
+            print("Saving best...")
+            torch.save(state_dict, run_dir / "best_FCBFormer.pt")
             prev_best_test = test_measure_mean
+
 
 
 def get_args():
@@ -325,7 +358,26 @@ def get_args():
 
 def main():
     args = get_args()
-    train(args)
+
+    run_dir = Path("outputs") / datetime.now().strftime("%Y%m%d-%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    # save args for reproducibility
+    with open(run_dir / "config.json", "w") as f:
+        json.dump(vars(args), f, indent=2)
+
+    # set & save seeds
+    seed = 1337
+    random.seed(seed); np.random.seed(seed); torch.manual_seed(seed)
+    if torch.cuda.is_available(): torch.cuda.manual_seed_all(seed)
+    with open(run_dir / "seed.txt", "w") as f: f.write(str(seed))
+    
+    # environment snapshot
+    freeze = subprocess.run(["pip","freeze"], capture_output=True, text=True).stdout
+    with open(run_dir / "requirements_freeze.txt", "w") as f:
+        f.write(freeze)
+    
+    train(args, run_dir)
 
 
 if __name__ == "__main__":
