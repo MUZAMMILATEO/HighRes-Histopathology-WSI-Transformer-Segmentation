@@ -18,7 +18,8 @@ import json
 
 
 def train_epoch(model, device, train_loader, optimizer, epoch, Dice_loss, BCE_loss, 
-                ce_loss=None, dice_loss_mc=None, num_classes=1):
+                ce_loss=None, dice_loss_mc=None, bnd_loss=None, tumor_dil_loss=None, benign_dil_loss=None,
+                boundary_weight=0.2, tumor_dil_weight=0.2, benign_dil_weight=0.2, num_classes=1):
     t = time.time()
     model.train()
     loss_accumulator = []
@@ -30,8 +31,40 @@ def train_epoch(model, device, train_loader, optimizer, epoch, Dice_loss, BCE_lo
 
         if num_classes > 1:
             # AIRA (4 classes): use CE on logits + multiclass Dice
-            target_long = target.long()           # (B,H,W) int64
-            loss = dice_loss_mc(output, target_long) + ce_loss(output, target_long)
+            target_long = target.long()
+            l_dice = dice_loss_mc(output, target_long)
+            l_ce   = ce_loss(output, target_long)
+            loss = l_dice + l_ce
+            if bnd_loss is not None and boundary_weight > 0:
+                l_bnd = bnd_loss(output, target_long)
+                loss = loss + boundary_weight * l_bnd
+            else:
+                l_bnd = torch.tensor(0.0, device=device)
+            if tumor_dil_loss is not None and tumor_dil_weight > 0:
+                l_tum = tumor_dil_loss(output, target_long)
+                loss = loss + tumor_dil_weight * l_tum
+            else:
+                l_tum = torch.tensor(0.0, device=device)
+            if benign_dil_loss is not None and benign_dil_weight > 0:
+                l_ben = benign_dil_loss(output, target_long)
+                loss = loss + benign_dil_weight * l_ben
+            else:
+                l_ben = torch.tensor(0.0, device=device)
+                
+            # Debug print every 50 batches
+            if (batch_idx % 50) == 0:
+                def _f(x):  # safe to print even if it's a tensor on GPU
+                    if isinstance(x, torch.Tensor):
+                        return float(x.detach().cpu())
+                    return float(x)
+                print(
+                    f"\n [losses] CE:{_f(l_ce):.4f} "
+                    f"Dice:{_f(l_dice):.4f} "
+                    f"Bnd:{_f(l_bnd):.4f} "
+                    f"TumDil:{_f(l_tum):.4f} "
+                    f"BenDil:{_f(l_ben):.4f}"
+                )
+
         else:
             # Binary path (Kvasir/CVC): keep original behavior
             loss = Dice_loss(output, target) + BCE_loss(output, target)
@@ -129,7 +162,9 @@ def build(args):
         num_classes = 1  # original binary
         ce_loss = nn.BCEWithLogitsLoss()
         dice_loss = losses.SoftDiceLoss()
-
+        bnd_loss  = None
+        tumor_dil_loss  = None
+        benign_dil_loss = None
 
     elif args.dataset == "AIRA":
         train_csv = os.path.join(args.root, "processed", "manifests", "train.csv")
@@ -158,6 +193,17 @@ def build(args):
 
         ce_loss = nn.CrossEntropyLoss(weight=weights)
         dice_loss = losses.MultiClassDiceLoss(num_classes=num_classes)
+        bnd_loss = losses.BoundaryDiceLossAgnostic(num_classes=num_classes, kernel_size=3)
+        
+        # NEW class-focused dilated losses
+        tumor_dil_loss  = losses.TumorDilatedDiceLoss(
+            num_classes=num_classes, iters=args.dil_iters, 
+            kernel_size=args.dil_kernel, prob_power=args.prob_power
+        )
+        benign_dil_loss = losses.BenignDilatedDiceLoss(
+            num_classes=num_classes, iters=args.dil_iters, 
+            kernel_size=args.dil_kernel, prob_power=args.prob_power
+        )
         
     else:
         raise ValueError("Unknown dataset")
@@ -173,7 +219,7 @@ def build(args):
     # perf metric (DiceScore in your repo is probably binary; for AIRA use CE + Dice and report IoU in test())
     perf = performance_metrics.DiceScore() if num_classes == 1 else None
 
-    return device, train_dataloader, val_dataloader, dice_loss, ce_loss, perf, model, optimizer, num_classes
+    return device, train_dataloader, val_dataloader, dice_loss, ce_loss, bnd_loss, tumor_dil_loss, benign_dil_loss, perf, model, optimizer, num_classes
 
 
 
@@ -184,6 +230,9 @@ def train(args):
         val_dataloader,
         Dice_loss,
         CE_loss,
+        BND_loss,
+        TumorDilLoss,
+        BenignDilLoss, 
         perf,
         model,
         optimizer,
@@ -210,6 +259,12 @@ def train(args):
                 Dice_loss, CE_loss,
                 ce_loss=CE_loss if num_classes > 1 else None,
                 dice_loss_mc=Dice_loss if num_classes > 1 else None,
+                bnd_loss=BND_loss if num_classes > 1 else None,
+                tumor_dil_loss=TumorDilLoss if num_classes > 1 else None,
+                benign_dil_loss=BenignDilLoss if num_classes > 1 else None,
+                boundary_weight=args.boundary_weight,
+                tumor_dil_weight=args.tumor_dil_weight,
+                benign_dil_weight=args.benign_dil_weight,
                 num_classes=num_classes,
             )
 
@@ -258,6 +313,12 @@ def get_args():
     parser.add_argument(
         "--multi-gpu", type=str, default="false", dest="mgpu", choices=["true", "false"]
     )
+    parser.add_argument("--boundary-weight", type=float, default=0.2)
+    parser.add_argument("--tumor-dil-weight", type=float, default=0.2)
+    parser.add_argument("--benign-dil-weight", type=float, default=0.1)
+    parser.add_argument("--dil-iters", type=int, default=3)
+    parser.add_argument("--dil-kernel", type=int, default=3)
+    parser.add_argument("--prob-power", type=float, default=1.0)
 
     return parser.parse_args()
 
