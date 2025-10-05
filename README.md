@@ -36,26 +36,26 @@ Download the pretrained backbone weights for model initialization from [this lin
 
 - **Dataset Location:**
 Store the raw Whole Slide Images (WSIs) at:
-```bash
-<repo_root>/
-└── datasets/
-    └── raw/
-        ├── Training/                 # Training WSIs or tiles
-        │   ├── sample_001.png
-        │   ├── sample_001_mask.png
-        │   ├── sample_002.png
-        │   ├── sample_002_mask.png
-        │   └── ...
-        ├── Validation/               # Validation set
-        │   ├── slide_101.png
-        │   ├── slide_101_mask.png
-        │   └── ...
-        └── Extra/                    # Optional: test or unseen slides
-            ├── slide_201.png
-            ├── slide_201_mask.png
-            └── ...
+  ```bash
+  <repo_root>/
+  └── datasets/
+      └── raw/
+          ├── Training/                 # Training WSIs or tiles
+          │   ├── sample_001.png
+          │   ├── sample_001_mask.png
+          │   ├── sample_002.png
+          │   ├── sample_002_mask.png
+          │   └── ...
+          ├── Validation/               # Validation set
+          │   ├── slide_101.png
+          │   ├── slide_101_mask.png
+          │   └── ...
+          └── Extra/                    # Optional: test or unseen slides
+              ├── slide_201.png
+              ├── slide_201_mask.png
+              └── ...
 
-```
+  ```
 
 - **Download Pretrained WSI Checkpoint (Optional)**
 For convenience, the fully trained model weights on the prostate WSI dataset are also available for download from the following link:
