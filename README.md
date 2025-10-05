@@ -341,5 +341,28 @@ python eval.py \
   --overlay-alpha 0.4
 ```
 
+---
+
+## 📖 Citation
+If you use this repository or build upon it in your research, please cite:
+```bash
+@article{khan2025highreswsi,
+  title   = {HighRes-Histopathology-WSI-Transformer-Segmentation:
+             A High-Resolution Transformer-Based Framework for Efficient
+             and Precise Whole-Slide Image Segmentation},
+  author  = {Khan, Muzammil},
+  year    = {2025},
+  journal = {GitHub Repository},
+  howpublished = {\url{https://github.com/khanm2004/HighRes-Histopathology-WSI-Transformer-Segmentation}}
+}
+```
+
+## 🙏 Acknowledgement
+
+This implementation builds upon the **FCBFormer** architecture from the following repository:  
+🔗 [ESandML/FCBFormer](https://github.com/ESandML/FCBFormer)
+
+We gratefully acknowledge the original authors for making their work available to the research community.
+
 
 
