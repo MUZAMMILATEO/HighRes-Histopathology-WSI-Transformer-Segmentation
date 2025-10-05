@@ -33,7 +33,12 @@ Make sure you have the following installed on your system:
   ```bash
   sudo apt install -y nvidia-container-toolkit
   sudo systemctl restart docker
-```
+  ```
+- Download the weights for training initialisation from [this link](https://github.com/whai362/PVT/releases/download/v2/pvt_v2_b3.pth) and place them into:
+  ```bash
+  <repo_root>/weights/pvt_v2_b3.pth
+  ```
+
 ---
 
 ## 📦 Pull Docker Image
@@ -205,4 +210,35 @@ FCBFormer/
     └── extra_preds/               # Predictions for extra/unseen slides
 ...
 ```
+
+---
+
+## 🛠️ Manual Setup (Conda)
+
+Use this if you prefer running locally without Docker. The code and flags mirror the Docker commands.
+
+### 1) Create environment
+```bash
+# From repo root
+conda env create -f environment.yml
+conda activate fcbformer
+```
+
+### 2) One-shot sanity check
+```bash
+python - <<'PY'
+import torch, torchvision, timm, cv2, sklearn, skimage, tqdm, numpy as np
+print("CUDA available:", torch.cuda.is_available())
+print("PyTorch:", torch.__version__, "CUDA build:", torch.version.cuda)
+print("torchvision:", torchvision.__version__)
+print("timm:", timm.__version__)
+print("opencv:", cv2.__version__)
+print("sklearn:", sklearn.__version__, "skimage:", skimage.__version__, "numpy:", np.__version__)
+if torch.cuda.is_available():
+    print("GPU:", torch.cuda.get_device_name(0))
+PY
+```
+
+
+
 
