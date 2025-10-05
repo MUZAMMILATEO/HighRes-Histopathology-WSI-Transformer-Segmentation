@@ -26,6 +26,41 @@ The project is **containerized with Docker** to ensure fully reproducible experi
 
 ## 🧰 Prerequisites
 
+Before proceeding, ensure the following resources are available in your environment:
+
+- **Pretrained Backbone Weights**
+Download the pretrained backbone weights for model initialization from [this link](https://github.com/whai362/PVT/releases/download/v2/pvt_v2_b3.pth) and place the file at:
+  ```bash
+  <repo_root>/
+  ```
+
+- **Dataset Location**
+Store the raw Whole Slide Images (WSIs) at:
+```bash
+<repo_root>/
+└── datasets/
+    └── raw/
+        ├── Training/                 # Training WSIs or tiles
+        │   ├── sample_001.png
+        │   ├── sample_001_mask.png
+        │   ├── sample_002.png
+        │   ├── sample_002_mask.png
+        │   └── ...
+        ├── Validation/               # Validation set
+        │   ├── slide_101.png
+        │   ├── slide_101_mask.png
+        │   └── ...
+        └── Extra/                    # Optional: test or unseen slides
+            ├── slide_201.png
+            ├── slide_201_mask.png
+            └── ...
+
+```
+
+---
+
+## Option A - Using Docker
+
 Make sure you have the following installed on your system:
 
 - 🐋 **Docker** (≥ 20.10)
@@ -33,10 +68,6 @@ Make sure you have the following installed on your system:
   ```bash
   sudo apt install -y nvidia-container-toolkit
   sudo systemctl restart docker
-  ```
-- Download the weights for training initialisation from [this link](https://github.com/whai362/PVT/releases/download/v2/pvt_v2_b3.pth) and place them into:
-  ```bash
-  <repo_root>/pvt_v2_b3.pth
   ```
 
 ---
@@ -214,7 +245,7 @@ FCBFormer/
 
 ---
 
-## 🛠️ Manual Setup (Conda)
+## 🛠️ Option B - Manual Setup (Conda)
 
 Use this if you prefer running locally without Docker. The code and flags mirror the Docker commands.
 
