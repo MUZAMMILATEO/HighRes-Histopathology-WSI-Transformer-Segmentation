@@ -36,7 +36,7 @@ Make sure you have the following installed on your system:
   ```
 - Download the weights for training initialisation from [this link](https://github.com/whai362/PVT/releases/download/v2/pvt_v2_b3.pth) and place them into:
   ```bash
-  <repo_root>/weights/pvt_v2_b3.pth
+  <repo_root>/pvt_v2_b3.pth
   ```
 
 ---
