@@ -249,14 +249,21 @@ FCBFormer/
 
 Use this if you prefer running locally without Docker. The code and flags mirror the Docker commands.
 
-### 1) Create environment
+### 1) Clone the repository
+
+```bash
+git clone https://github.com/MUZAMMILATEO/HighRes-Histopathology-WSI-Transformer-Segmentation.git
+cd HighRes-Histopathology-WSI-Transformer-Segmentation
+```
+
+### 2) Create environment
 ```bash
 # From repo root
 conda env create -f environment.yml
 conda activate fcbformer
 ```
 
-### 2) One-shot sanity check
+### 3) One-shot sanity check
 ```bash
 python - <<'PY'
 import torch, torchvision, timm, cv2, sklearn, skimage, tqdm, numpy as np
@@ -270,7 +277,7 @@ if torch.cuda.is_available():
     print("GPU:", torch.cuda.get_device_name(0))
 PY
 ```
-### 3) Prepare data
+### 4) Prepare data
 
 Keep raw delivery intact and generate a processed set by running 
 
@@ -282,7 +289,7 @@ python Data_prep/prepare_dataset.py \
   --overlap 64
 ```
 
-### 4) Visualize colored mask previews & Sanity-check manifests
+### 5) Visualize colored mask previews & Sanity-check manifests
 
 ```bash
 python Data_prep/make_colored_previews.py \
@@ -294,7 +301,7 @@ python Data_prep/check_manifests.py \
   --samples 5
 ```
 
-### 5) Train
+### 6) Train
 
 ```bash
 python train.py \
@@ -317,7 +324,7 @@ Artifacts are saved in
 ./outputs/<timestamp>/
 ```
 
-### 6) Evaluate (val/test)
+### 7) Evaluate (val/test)
 
 ```bash
 python eval.py \
@@ -329,7 +336,7 @@ python eval.py \
   --out-dir ./outputs/EvalWSI
   ```
 
-### 7) Evaluate on extra slides
+### 8) Evaluate on extra slides
 ```bash
 python eval.py \
   --data-root ./datasets \
