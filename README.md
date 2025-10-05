@@ -28,13 +28,13 @@ The project is **containerized with Docker** to ensure fully reproducible experi
 
 Before proceeding, ensure the following resources are available in your environment:
 
-- **Pretrained Backbone Weights**
+- **Pretrained Backbone Weights:**
 Download the pretrained backbone weights for model initialization from [this link](https://github.com/whai362/PVT/releases/download/v2/pvt_v2_b3.pth) and place the file at:
   ```bash
   <repo_root>/
   ```
 
-- **Dataset Location**
+- **Dataset Location:**
 Store the raw Whole Slide Images (WSIs) at:
 ```bash
 <repo_root>/
@@ -270,7 +270,76 @@ if torch.cuda.is_available():
     print("GPU:", torch.cuda.get_device_name(0))
 PY
 ```
+### 3) Prepare data
 
+Keep raw delivery intact and generate a processed set by running 
+
+```bash
+python Data_prep/prepare_dataset.py \
+  --root ./datasets \
+  --out-name tiles_512_o64 \
+  --patch-size 256 \
+  --overlap 64
+```
+
+### 4) Visualize colored mask previews & Sanity-check manifests
+
+```bash
+python Data_prep/make_colored_previews.py \
+  --mask-dir ./datasets/processed/tiles_512_o64/train/masks \
+  --limit 50
+
+python Data_prep/check_manifests.py \
+  --manifests-dir ./datasets/processed/manifests \
+  --samples 5
+```
+
+### 5) Train
+
+```bash
+python train.py \
+  --dataset AIRA \
+  --data-root ./datasets \
+  --epochs 60 \
+  --batch-size 4 \
+  --learning-rate 3e-4 \
+  --img-size 256 \
+  --boundary-weight 0.7 \
+  --tumor-dil-weight 0.7 \
+  --benign-dil-weight 0.7 \
+  --dil-iters 5 \
+  --dil-kernel 3 \
+  --prob-power 1.0
+```
+
+Artifacts are saved in
+```bash
+./outputs/<timestamp>/
+```
+
+### 6) Evaluate (val/test)
+
+```bash
+python eval.py \
+  --data-root ./datasets \
+  --checkpoint ./outputs/<timestamp>/best_FCBFormer.pt \
+  --img-size 256 \
+  --batch-size 4 \
+  --save-png \
+  --out-dir ./outputs/EvalWSI
+  ```
+
+### 7) Evaluate on extra slides
+```bash
+python eval.py \
+  --data-root ./datasets \
+  --checkpoint ./outputs/<timestamp>/best_FCBFormer.pt \
+  --img-size 256 \
+  --batch-size 4 \
+  --tiles-manifest ./datasets/processed/manifests/extra.csv \
+  --out-dir ./outputs/extra_preds \
+  --overlay-alpha 0.4
+```
 
 
 
