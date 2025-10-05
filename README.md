@@ -59,7 +59,6 @@ Store the raw Whole Slide Images (WSIs) at:
 
 - **Download Pretrained WSI Checkpoint (Optional)**
 For convenience, the fully trained model weights on the prostate WSI dataset are also available for download from the following link:
-
 👉 [Download Trained FCBFormer WSI Model (.pt)](https://drive.google.com/file/d/16UWLpIgQWkI_bCbEVdeCs9XgUkreh8us/view?usp=sharing)
 
 ---
