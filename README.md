@@ -201,6 +201,7 @@ FCBFormer/
 │   └── check_manifests.py
 ├── train.py                       # Main training entry point
 ├── eval.py                        # Evaluation script
+├── pvt_v2_b3.pth                  # Initial weights
 ├── datasets/
 │   ├── raw/                       # Original WSIs or tiles
 │   └── processed/                 # Preprocessed and tiled data
