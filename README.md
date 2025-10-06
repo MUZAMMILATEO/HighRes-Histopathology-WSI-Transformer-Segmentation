@@ -89,6 +89,12 @@ Check that it’s available:
 docker images | grep fcbformer
 ```
 
+Retag your pulled image:
+
+```bash
+docker tag khanm2004/fcbformer:conda-cu111 fcbformer:conda
+```
+
 ---
 
 ## 🧑‍💻 Quick Start
