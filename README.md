@@ -201,7 +201,7 @@ docker run --rm -it --gpus all \
   fcbformer:conda \
   conda run -n fcbformer python eval.py \
     --data-root /workspace/datasets \
-    --checkpoint /workspace/outputs/20251004-183051/best_FCBFormer.pt \
+    --checkpoint /workspace/outputs/<timestamp>/best_FCBFormer.pt \
     --img-size 256 \
     --batch-size 4 \
     --save-png \
@@ -220,7 +220,7 @@ docker run --rm -it --gpus all \
   fcbformer:conda \
   conda run -n fcbformer python eval.py \
     --data-root /workspace/datasets \
-    --checkpoint /workspace/outputs/20251004-183051/best_FCBFormer.pt \
+    --checkpoint /workspace/outputs/<timestamp>/best_FCBFormer.pt \
     --img-size 256 \
     --batch-size 4 \
     --tiles-manifest /workspace/datasets/processed/manifests/extra.csv \
